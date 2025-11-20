@@ -660,6 +660,8 @@ export interface OpenAPITSOptions {
   enumValues?: boolean;
   /** Dedupe enum values */
   dedupeEnums?: boolean;
+  /** Export enums as const objects with "as const" assertion */
+  enumAsConst?: boolean;
   /** (optional) Substitute path parameter names with their respective types */
   pathParamsAsTypes?: boolean;
   /** Treat all objects as if they have \`required\` set to all properties by default (default: false) */
@@ -696,6 +698,7 @@ export interface GlobalContext {
   enum: boolean;
   enumValues: boolean;
   dedupeEnums: boolean;
+  enumAsConst: boolean;
   excludeDeprecated: boolean;
   exportType: boolean;
   immutable: boolean;

@@ -18,6 +18,7 @@ Options
   --enum                     Export true TS enums instead of unions
   --enum-values              Export enum values as arrays
   --dedupe-enums             Dedupe enum types when \`--enum=true\` is set
+  --enum-as-const            Export enums as const objects with "as const" assertion
   --check                    Check that the generated types are up-to-date. (default: false)
   --export-type, -t          Export top-level \`type\` instead of \`interface\`
   --immutable                Generate readonly types
@@ -76,6 +77,7 @@ const flags = parser(args, {
     "enum",
     "enumValues",
     "dedupeEnums",
+    "enumAsConst",
     "check",
     "excludeDeprecated",
     "exportType",
@@ -141,6 +143,7 @@ async function generateSchema(schema, { redocly, silent = false }) {
       enum: flags.enum,
       enumValues: flags.enumValues,
       dedupeEnums: flags.dedupeEnums,
+      enumAsConst: flags.enumAsConst,
       excludeDeprecated: flags.excludeDeprecated,
       exportType: flags.exportType,
       immutable: flags.immutable,

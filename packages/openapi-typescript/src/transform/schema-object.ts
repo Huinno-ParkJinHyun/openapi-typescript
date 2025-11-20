@@ -10,6 +10,7 @@ import {
   QUESTION_TOKEN,
   STRING,
   tsArrayLiteralExpression,
+  tsConstObject,
   tsEnum,
   tsIntersection,
   tsIsPrimitive,
@@ -99,7 +100,7 @@ export function transformSchemaObjectWithComposition(
   ) {
     // hoist enum to top level if string/number enum and option is enabled
     if (
-      options.ctx.enum &&
+      (options.ctx.enum || options.ctx.enumAsConst) &&
       schemaObject.enum.every((v) => typeof v === "string" || typeof v === "number" || v === null)
     ) {
       let enumName = parseRef(options.path ?? "").pointer.join("/");
@@ -120,16 +121,39 @@ export function transformSchemaObjectWithComposition(
 
         return true;
       });
-      const enumType = tsEnum(enumName, validSchemaEnums as (string | number)[], metadata, {
-        shouldCache: options.ctx.dedupeEnums,
-        export: true,
-        // readonly: TS enum do not support the readonly modifier
-      });
-      if (!options.ctx.injectFooter.includes(enumType)) {
-        options.ctx.injectFooter.push(enumType);
+
+      if (options.ctx.enumAsConst) {
+        // Generate const object with "as const" assertion
+        const { constDeclaration, typeAlias } = tsConstObject(
+          enumName,
+          validSchemaEnums as (string | number)[],
+          metadata,
+          {
+            shouldCache: options.ctx.dedupeEnums,
+            export: true,
+          },
+        );
+        if (!options.ctx.injectFooter.includes(constDeclaration)) {
+          options.ctx.injectFooter.push(constDeclaration);
+        }
+        if (!options.ctx.injectFooter.includes(typeAlias)) {
+          options.ctx.injectFooter.push(typeAlias);
+        }
+        const ref = ts.factory.createTypeReferenceNode(typeAlias.name);
+        return hasNull ? tsUnion([ref, NULL]) : ref;
+      } else {
+        // Generate traditional enum
+        const enumType = tsEnum(enumName, validSchemaEnums as (string | number)[], metadata, {
+          shouldCache: options.ctx.dedupeEnums,
+          export: true,
+          // readonly: TS enum do not support the readonly modifier
+        });
+        if (!options.ctx.injectFooter.includes(enumType)) {
+          options.ctx.injectFooter.push(enumType);
+        }
+        const ref = ts.factory.createTypeReferenceNode(enumType.name);
+        return hasNull ? tsUnion([ref, NULL]) : ref;
       }
-      const ref = ts.factory.createTypeReferenceNode(enumType.name);
-      return hasNull ? tsUnion([ref, NULL]) : ref;
     }
     const enumType = schemaObject.enum.map(tsLiteral);
     if ((Array.isArray(schemaObject.type) && schemaObject.type.includes("null")) || schemaObject.nullable) {

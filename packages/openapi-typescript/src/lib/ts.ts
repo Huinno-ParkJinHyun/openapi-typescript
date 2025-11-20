@@ -265,6 +265,7 @@ export function tsDedupe(types: ts.TypeNode[]): ts.TypeNode[] {
 }
 
 export const enumCache = new Map<string, ts.EnumDeclaration>();
+export const constObjectCache = new Map<string, { constDeclaration: ts.VariableStatement; typeAlias: ts.TypeAliasDeclaration }>();
 
 /** Create a TS enum (with sanitized name and members) */
 export function tsEnum(
@@ -295,6 +296,118 @@ export function tsEnum(
   );
   options?.shouldCache && enumCache.set(key, enumDeclaration);
   return enumDeclaration;
+}
+
+/** Create a const object with "as const" assertion and corresponding type alias */
+export function tsConstObject(
+  name: string,
+  members: (string | number)[],
+  metadata?: { name?: string; description?: string | null }[],
+  options?: { export?: boolean; shouldCache?: boolean },
+) {
+  let objectName = sanitizeMemberName(name);
+  objectName = `${objectName[0].toUpperCase()}${objectName.substring(1)}`;
+
+  let key = "";
+  if (options?.shouldCache) {
+    key = `${members
+      .slice(0)
+      .sort()
+      .map((v, i) => {
+        return `${metadata?.[i]?.name ?? String(v)}:${metadata?.[i]?.description || ""}`;
+      })
+      .join(",")}`;
+    if (constObjectCache.has(key)) {
+      return constObjectCache.get(key)!;
+    }
+  }
+
+  // Create object properties
+  const properties: ts.PropertyAssignment[] = members.map((value, i) => {
+    let propertyName = metadata?.[i]?.name ?? String(value);
+
+    // Sanitize property name similar to enum member
+    if (!JS_PROPERTY_INDEX_RE.test(propertyName)) {
+      if (Number(propertyName[0]) >= 0) {
+        propertyName = `Value${propertyName}`.replace(".", "_");
+      } else if (propertyName[0] === "-") {
+        propertyName = `ValueMinus${propertyName.slice(1)}`;
+      }
+
+      const invalidCharMatch = propertyName.match(JS_PROPERTY_INDEX_INVALID_CHARS_RE);
+      if (invalidCharMatch) {
+        if (invalidCharMatch[0] !== propertyName) {
+          propertyName = propertyName.replace(JS_PROPERTY_INDEX_INVALID_CHARS_RE, (s) => {
+            return s in SPECIAL_CHARACTER_MAP ? SPECIAL_CHARACTER_MAP[s] : "_";
+          });
+        }
+      }
+    }
+
+    // Convert to SCREAMING_SNAKE_CASE for const object keys
+    propertyName = propertyName.replace(/[A-Z]/g, (c, idx) => (idx > 0 ? "_" : "") + c).toUpperCase();
+
+    const valueLiteral = typeof value === "number"
+      ? value < 0
+        ? ts.factory.createPrefixUnaryExpression(
+            ts.SyntaxKind.MinusToken,
+            ts.factory.createNumericLiteral(Math.abs(value)),
+          )
+        : ts.factory.createNumericLiteral(value)
+      : ts.factory.createStringLiteral(value);
+
+    let property = ts.factory.createPropertyAssignment(
+      ts.factory.createIdentifier(propertyName),
+      valueLiteral,
+    );
+
+    // Add JSDoc comment if description exists
+    const trimmedDescription = metadata?.[i]?.description?.trim();
+    if (trimmedDescription && trimmedDescription !== "") {
+      property = ts.addSyntheticLeadingComment(
+        property,
+        ts.SyntaxKind.SingleLineCommentTrivia,
+        ` ${trimmedDescription}`,
+        true,
+      );
+    }
+
+    return property;
+  });
+
+  // Create object literal with "as const" assertion
+  const objectLiteral = ts.factory.createAsExpression(
+    ts.factory.createObjectLiteralExpression(properties, true),
+    ts.factory.createTypeReferenceNode(ts.factory.createIdentifier("const")),
+  );
+
+  // Create const variable declaration
+  const constDeclaration = ts.factory.createVariableStatement(
+    options ? tsModifiers({ export: options.export ?? false }) : undefined,
+    ts.factory.createVariableDeclarationList(
+      [ts.factory.createVariableDeclaration(objectName, undefined, undefined, objectLiteral)],
+      ts.NodeFlags.Const,
+    ),
+  );
+
+  // Create type alias: type NAME = typeof NAME[keyof typeof NAME]
+  const typeofExpression = ts.factory.createTypeQueryNode(ts.factory.createIdentifier(objectName));
+  const keyofTypeofExpression = ts.factory.createTypeOperatorNode(
+    ts.SyntaxKind.KeyOfKeyword,
+    typeofExpression,
+  );
+  const indexedAccessType = ts.factory.createIndexedAccessTypeNode(typeofExpression, keyofTypeofExpression);
+
+  const typeAlias = ts.factory.createTypeAliasDeclaration(
+    options ? tsModifiers({ export: options.export ?? false }) : undefined,
+    objectName,
+    undefined,
+    indexedAccessType,
+  );
+
+  const result = { constDeclaration, typeAlias };
+  options?.shouldCache && constObjectCache.set(key, result);
+  return result;
 }
 
 /** Create an exported TS array literal expression  */
