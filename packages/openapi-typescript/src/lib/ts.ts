@@ -306,7 +306,8 @@ export function tsConstObject(
   options?: { export?: boolean; shouldCache?: boolean },
 ) {
   let objectName = sanitizeMemberName(name);
-  objectName = `${objectName[0].toUpperCase()}${objectName.substring(1)}`;
+  // Convert to SCREAMING_SNAKE_CASE for const object name
+  objectName = objectName.replace(/[A-Z]/g, (c, idx) => (idx > 0 ? "_" : "") + c).toUpperCase();
 
   let key = "";
   if (options?.shouldCache) {
